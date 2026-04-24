@@ -11,6 +11,8 @@ import { resolveRemoteConfig } from "./config.js";
 import type { ResolvedConfig } from "./config.js";
 import { PER_REQUEST_TIMEOUT_MS } from "./types.js";
 
+const FEISHU_API = "https://open.feishu.cn/open-apis";
+
 /**
  * Send a one-way notification to the configured remote channel.
  * Non-blocking, non-fatal — failures are silently ignored.
@@ -37,6 +39,9 @@ export async function sendRemoteNotification(title: string, message: string): Pr
         break;
       case "telegram":
         await sendTelegramNotification(config, title, message);
+        break;
+      case "feishu":
+        await sendFeishuNotification(config, title, message);
         break;
     }
   } catch {
@@ -87,4 +92,34 @@ async function sendTelegramNotification(config: ResolvedConfig, title: string, m
     signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`Telegram HTTP ${response.status}`);
+}
+
+async function sendFeishuNotification(config: ResolvedConfig, title: string, message: string): Promise<void> {
+  const tokenRes = await fetch(`${FEISHU_API}/auth/v3/tenant_access_token/internal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ app_id: config.token, app_secret: config.appSecret }),
+    signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
+  });
+  if (!tokenRes.ok) throw new Error(`Feishu auth HTTP ${tokenRes.status}`);
+
+  const tokenData = (await tokenRes.json().catch(() => ({}))) as { code?: number; tenant_access_token?: string };
+  if (tokenData.code !== 0 || !tokenData.tenant_access_token) {
+    throw new Error("Feishu auth failed: could not obtain tenant_access_token");
+  }
+
+  const response = await fetch(`${FEISHU_API}/im/v1/messages?receive_id_type=chat_id`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tokenData.tenant_access_token}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      receive_id: config.channelId,
+      msg_type: "text",
+      content: JSON.stringify({ text: `⚠️ ${title}\n${message}` }),
+    }),
+    signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Feishu HTTP ${response.status}`);
 }

@@ -215,6 +215,44 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+export function formatForFeishu(prompt: RemotePrompt): string {
+  const lines: string[] = ["GSD needs your input", ""];
+
+  for (let qi = 0; qi < prompt.questions.length; qi++) {
+    const q = prompt.questions[qi];
+    lines.push(`${q.header}`);
+    lines.push(q.question);
+    lines.push("");
+
+    for (let i = 0; i < q.options.length; i++) {
+      lines.push(`${i + 1}. ${q.options[i].label} — ${q.options[i].description}`);
+    }
+
+    lines.push("");
+    if (prompt.questions.length === 1) {
+      lines.push(q.allowMultiple
+        ? "Reply with comma-separated numbers (1,3) or free text."
+        : "Reply with a number or free text.");
+    } else {
+      lines.push(`Question ${qi + 1}/${prompt.questions.length} — reply with one line per question or use semicolons.`);
+    }
+
+    if (qi < prompt.questions.length - 1) lines.push("");
+  }
+
+  if (prompt.context?.source) {
+    lines.push("");
+    lines.push(`Source: ${prompt.context.source}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function parseFeishuReply(text: string, questions: RemoteQuestion[]): RemoteAnswer {
+  // Feishu replies are plain text; reuse Slack text parsing logic.
+  return parseSlackReply(text, questions);
+}
+
 export function formatForTelegram(prompt: RemotePrompt): TelegramMessage {
   const lines: string[] = ["<b>GSD needs your input</b>", ""];
 

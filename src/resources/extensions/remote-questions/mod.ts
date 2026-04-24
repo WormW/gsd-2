@@ -11,6 +11,8 @@ export {
 	parseSlackReactionResponse,
 	formatForTelegram,
 	parseTelegramResponse,
+	formatForFeishu,
+	parseFeishuReply,
 } from "./format.js";
 export { resolveRemoteConfig, isValidChannelId } from "./config.js";
 export { sendRemoteNotification } from "./notify.js";

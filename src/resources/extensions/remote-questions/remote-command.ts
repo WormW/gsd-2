@@ -22,6 +22,7 @@ export async function handleRemote(
   if (trimmed === "slack") return handleSetupSlack(ctx);
   if (trimmed === "discord") return handleSetupDiscord(ctx);
   if (trimmed === "telegram") return handleSetupTelegram(ctx);
+  if (trimmed === "feishu") return handleSetupFeishu(ctx);
   if (trimmed === "status") return handleRemoteStatus(ctx);
   if (trimmed === "disconnect") return handleDisconnect(ctx);
 
@@ -182,6 +183,58 @@ async function handleSetupTelegram(ctx: ExtensionCommandContext): Promise<void> 
   ctx.ui.notify(`Telegram connected — remote questions enabled for chat ${chatId}.`, "info");
 }
 
+async function handleSetupFeishu(ctx: ExtensionCommandContext): Promise<void> {
+  const appId = await promptInput(ctx, "Feishu App ID", "Paste your Feishu App ID (e.g. cli_xxxxxxxxxxxxxxxx)");
+  if (!appId) return void ctx.ui.notify("Feishu setup cancelled.", "info");
+  if (!appId.startsWith("cli_")) return void ctx.ui.notify("Invalid App ID format — Feishu App IDs start with cli_", "warning");
+
+  const appSecret = await promptMaskedInput(ctx, "Feishu App Secret", "Paste your Feishu App Secret");
+  if (!appSecret) return void ctx.ui.notify("Feishu setup cancelled.", "info");
+
+  ctx.ui.notify("Validating credentials...", "info");
+  const tokenRes = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!tokenRes.ok) return void ctx.ui.notify("Token request failed — check your App ID and App Secret.", "error");
+
+  const tokenData = (await tokenRes.json().catch(() => ({}))) as { code?: number; tenant_access_token?: string; msg?: string };
+  if (tokenData.code !== 0 || !tokenData.tenant_access_token) {
+    return void ctx.ui.notify(`Token validation failed: ${tokenData.msg ?? "check credentials"}`, "error");
+  }
+
+  const chatId = await promptInput(ctx, "Chat ID", "Paste the Feishu chat ID (e.g. oc_xxxxxxxxxxxxxxxx)");
+  if (!chatId) return void ctx.ui.notify("Feishu setup cancelled.", "info");
+  if (!isValidChannelId("feishu", chatId)) return void ctx.ui.notify("Invalid Feishu chat ID format — expected oc_ prefix.", "error");
+
+  // Send a test message
+  const sendRes = await fetch(`https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tokenData.tenant_access_token}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      receive_id: chatId,
+      msg_type: "text",
+      content: JSON.stringify({ text: "GSD remote questions connected." }),
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!sendRes.ok) {
+    const body = await sendRes.text().catch(() => "");
+    return void ctx.ui.notify(`Could not send to chat (HTTP ${sendRes.status}): ${sanitizeError(body).slice(0, 200)}`, "error");
+  }
+
+  saveProviderToken("feishu_bot", appId);
+  process.env.FEISHU_APP_ID = appId;
+  process.env.FEISHU_APP_SECRET = appSecret;
+  saveRemoteQuestionsConfig("feishu", chatId);
+  ctx.ui.notify(`Feishu connected — remote questions enabled for chat ${chatId}.`, "info");
+}
+
 async function handleRemoteStatus(ctx: ExtensionCommandContext): Promise<void> {
   const status = getRemoteConfigStatus();
   const config = resolveRemoteConfig();
@@ -212,6 +265,10 @@ async function handleDisconnect(ctx: ExtensionCommandContext): Promise<void> {
   if (channel === "slack") delete process.env.SLACK_BOT_TOKEN;
   if (channel === "discord") delete process.env.DISCORD_BOT_TOKEN;
   if (channel === "telegram") delete process.env.TELEGRAM_BOT_TOKEN;
+  if (channel === "feishu") {
+    delete process.env.FEISHU_APP_ID;
+    delete process.env.FEISHU_APP_SECRET;
+  }
   ctx.ui.notify(`Remote questions disconnected (${channel}).`, "info");
 }
 
@@ -230,6 +287,7 @@ async function handleRemoteMenu(ctx: ExtensionCommandContext): Promise<void> {
         "  /gsd remote slack",
         "  /gsd remote discord",
         "  /gsd remote telegram",
+        "  /gsd remote feishu",
       ]
     : [
         "No remote question channel configured.",
@@ -238,6 +296,7 @@ async function handleRemoteMenu(ctx: ExtensionCommandContext): Promise<void> {
         "  /gsd remote slack",
         "  /gsd remote discord",
         "  /gsd remote telegram",
+        "  /gsd remote feishu",
         "  /gsd remote status",
       ];
 
@@ -315,7 +374,7 @@ function removeProviderToken(provider: string): void {
   auth.remove(provider);
 }
 
-export function saveRemoteQuestionsConfig(channel: "slack" | "discord" | "telegram", channelId: string): void {
+export function saveRemoteQuestionsConfig(channel: "slack" | "discord" | "telegram" | "feishu", channelId: string): void {
   const prefsPath = getGlobalGSDPreferencesPath();
   const block = [
     "remote_questions:",

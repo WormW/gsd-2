@@ -7,6 +7,7 @@ import type { ChannelAdapter, RemotePrompt, RemoteQuestion, RemoteAnswer } from 
 import type { RoundResult } from "../shared/interview-ui.js";
 import { resolveRemoteConfig, type ResolvedConfig } from "./config.js";
 import { DiscordAdapter } from "./discord-adapter.js";
+import { FeishuAdapter } from "./feishu-adapter.js";
 import { SlackAdapter } from "./slack-adapter.js";
 import { TelegramAdapter } from "./telegram-adapter.js";
 import { createPromptRecord, writePromptRecord, markPromptAnswered, markPromptDispatched, markPromptStatus, updatePromptRecord } from "./store.js";
@@ -175,6 +176,7 @@ function createPrompt(questions: QuestionInput[], config: ResolvedConfig): Remot
 function createAdapter(config: ResolvedConfig, basePath: string): ChannelAdapter {
   if (config.channel === "slack") return new SlackAdapter(config.token, config.channelId);
   if (config.channel === "telegram") return new TelegramAdapter(config.token, config.channelId, basePath);
+  if (config.channel === "feishu") return new FeishuAdapter(config.token, config.appSecret!, config.channelId);
   return new DiscordAdapter(config.token, config.channelId);
 }
 
